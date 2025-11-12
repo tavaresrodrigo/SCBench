@@ -10,13 +10,14 @@ spec:
         bench.tool: fio
     spec:
       restartPolicy: Never
-      tolerations:
-        - key: "node-role.kubernetes.io/master"
-          operator: "Exists"
-          effect: "NoSchedule"
-        - key: "node-role.kubernetes.io/control-plane"
-          operator: "Exists"
-          effect: "NoSchedule"
+# Apply tolerations in case your localstorage class maps the volumes from control-plane nodes
+#      tolerations:
+#        - key: "node-role.kubernetes.io/master"
+#          operator: "Exists"
+#          effect: "NoSchedule"
+#        - key: "node-role.kubernetes.io/control-plane"
+#          operator: "Exists"
+#          effect: "NoSchedule"
       containers:
         - name: etcd-perf
           image: quay.io/cloud-bulldozer/etcd-perf:latest
