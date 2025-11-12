@@ -1,0 +1,24 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: etcd-perf-run
+spec:
+  backoffLimit: 0
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: etcd-perf
+          image: quay.io/cloud-bulldozer/etcd-perf:latest
+          command: ["/bin/bash", "-c"]
+          args:
+            - |
+              echo "Running etcd-perf test...";
+              /usr/bin/etcd-perf --conns=1 --clients=1
+          volumeMounts:
+            - name: etcd-data
+              mountPath: /var/lib/etcd
+      volumes:
+        - name: etcd-data
+          persistentVolumeClaim:
+            claimName: bench-pvc
