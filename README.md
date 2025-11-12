@@ -8,7 +8,7 @@ By running multiple pods concurrently — all writing to the same PVC — you ca
 
 ---
 
-## 🧩 Repository structure
+## Repository structure
 
 ```text
 etcd-perf-storage-bench/
@@ -30,7 +30,7 @@ etcd-perf-storage-bench/
 
 ---
 
-## ⚙️ Requirements
+## Requirements
 
 * OpenShift 4.18+ cluster
 * CLI tools:
@@ -42,7 +42,7 @@ etcd-perf-storage-bench/
 
 ---
 
-## ⚡ Why fio?
+## Why fio?
 
 [`fio`](https://fio.readthedocs.io/en/latest/fio_doc.html) (Flexible I/O Tester) is an industry-standard tool to measure:
 
@@ -96,7 +96,7 @@ This will:
 
 ---
 
-## 📊 Monitor progress
+## Monitor progress
 
 ```bash
 oc get pods -n storage-bench
@@ -139,7 +139,7 @@ fio        5         ceph-sc       192700
 
 ---
 
-## 🔍 Interpretation
+## Interpretation
 
 | Observation                           | Meaning                                          |
 | ------------------------------------- | ------------------------------------------------ |
@@ -150,7 +150,7 @@ fio        5         ceph-sc       192700
 
 ---
 
-## 🧠 Notes
+## Notes
 
 * The image `quay.io/cloud-bulldozer/etcd-perf` is a wrapper around `fio`.
 * `/var/lib/etcd` mount path is **mandatory** — do not change it.
@@ -160,7 +160,7 @@ fio        5         ceph-sc       192700
 
 ---
 
-## 🧹 Cleanup
+## Cleanup
 
 ```bash
 oc delete ns storage-bench
@@ -168,7 +168,7 @@ oc delete ns storage-bench
 
 ---
 
-## 🧪 Compare multiple StorageClasses
+## Compare multiple StorageClasses
 
 ```bash
 scripts/run-bench.sh kustomize/overlays/ceph-sc 5 ceph-sc
@@ -182,10 +182,11 @@ The file `tables/results.csv` will contain all results.
 
 ---
 
-## 📚 References
+## References
 
 * [Cloud-Bulldozer etcd-perf container](https://github.com/cloud-bulldozer/images/tree/main/etcd-perf)
 * [fio official documentation](https://fio.readthedocs.io/en/latest/fio_doc.html)
+* [Validating the hardware for etcd](https://docs.redhat.com/en/documentation/openshift_container_platform/4.18/html/scalability_and_performance/recommended-performance-and-scalability-practices-2#etcd-verify-hardware_recommended-etcd-practices)
 
 ---
 
