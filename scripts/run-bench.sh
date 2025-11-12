@@ -1,19 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# SCBench - per-pod PVC mode, JSON p99 parser, OK/FAIL threshold
-#
-# Usage:
-#   scripts/run-bench.sh <storage-class-name> <parallel> [summary_csv] [details_csv]
-#
-# Env:
-#   NS=storage-bench          # namespace (default)
-#   BASE_DIR=kustomize/base   # base dir with pvc.yaml & job.yaml
-#   AGG=max                   # aggregation: max|avg|min (default: max)
-#   THRESH_NS=10000000        # threshold (10 ms) in nanoseconds
-#   KEEP=0                    # KEEP=1 keeps jobs & PVCs after run
-#
-# Requires: oc, kustomize, yq v4+
+# SCBench - per-pod PVC mode, clean awk parser, updated CSV format (<10ms column)
 
 if [ $# -lt 2 ]; then
   echo "usage: $0 <storage-class-name> <parallel> [summary_csv] [details_csv]" >&2
@@ -32,9 +20,8 @@ THRESH_NS="${THRESH_NS:-10000000}"
 KEEP="${KEEP:-0}"
 
 mkdir -p "$(dirname "$SUMMARY_CSV")" "$(dirname "$DETAILS_CSV")"
-
-[ -f "$SUMMARY_CSV" ] || echo "Parallel Replicas,Storage Backend,99thP ns,Status" > "$SUMMARY_CSV"
-[ -f "$DETAILS_CSV" ] || echo "job,pod,storageClass,p99_ns,Status" > "$DETAILS_CSV"
+[ -f "$SUMMARY_CSV" ] || echo "Parallel Replicas,Storage Backend,99thP ns,<10ms" > "$SUMMARY_CSV"
+[ -f "$DETAILS_CSV" ] || echo "Parallel Replicas,pod,storageClass,p99_ns,< 10ms" > "$DETAILS_CSV"
 
 oc get ns "$NS" >/dev/null 2>&1 || oc create ns "$NS" >/dev/null
 
@@ -52,6 +39,7 @@ cleanup() {
     for PVC in "${PVC_NAMES[@]:-}"; do
       oc delete pvc "$PVC" -n "$NS" --ignore-not-found --wait=true >/dev/null 2>&1 || true
     done
+    oc delete ns "$NS"
     echo "✅ Cleanup completed."
   else
     echo
@@ -94,7 +82,7 @@ for i in $(seq 1 "$PARALLEL"); do
 done
 
 echo
-echo "▶ Created ${PARALLEL} PVCs and ${PARALLEL} jobs in ${NS} for StorageClass ${SC_NAME}"
+echo "▶ Created ${PARALLEL} PVCs and ${PARALLEL} jobs in ${NS} for ${SC_NAME}"
 echo "▶ Watching pods (Ctrl+C to stop; script will continue waiting)..."
 echo
 
@@ -111,10 +99,13 @@ echo
 echo "✅ All jobs completed."
 echo
 
-# --- JSON parsing helpers ---
+# --- JSON parsing helpers (clean awk, no warnings) ---
 extract_json() { awk 'found{print} /^[[:space:]]*\{/{found=1}'; }
 
 parse_p99_from_json() {
+  local json
+  json="$(cat)"
+
   local paths=(
     '.jobs[0].sync.clat_ns.percentile."99.000000"'
     '.jobs[0].sync.lat_ns.percentile."99.000000"'
@@ -123,60 +114,68 @@ parse_p99_from_json() {
     '.jobs[0].clat_ns.percentile."99.000000"'
     '.jobs[0].lat_ns.percentile."99.000000"'
   )
-  local val
+  local val p
   for p in "${paths[@]}"; do
-    val="$(yq -p=json -o=y "$p" 2>/dev/null || true)"
+    val="$(printf '%s' "$json" | yq -p=json -o=y "$p" - 2>/dev/null || true)"
     if [[ -n "$val" && "$val" != "null" && "$val" =~ ^[0-9]+$ ]]; then
-      echo "$val"
+      printf '%s\n' "$val"
       return 0
     fi
   done
-  val="$(grep -oE '\"99\\.000000\"[[:space:]]*:[[:space:]]*[0-9]+' | head -n1 | grep -oE '[0-9]+' || true)"
+
+  val="$(printf '%s' "$json" | awk 'match($0, /99\.000000[[:space:]]*:[[:space:]]*([0-9]+)/, m){print m[1]; exit}')"
   if [[ -n "$val" && "$val" =~ ^[0-9]+$ ]]; then
-    echo "$val"
+    printf '%s\n' "$val"
     return 0
   fi
   return 1
 }
-# ----------------------------
+
+get_fio_json() {
+  local pod="$1"
+  local logs json
+  for _ in 1 2 3 4 5; do
+    logs="$(oc logs -n "$NS" "$pod" 2>/dev/null || true)"; [ -n "$logs" ] && break; sleep 1
+  done
+  json="$(printf "%s\n" "${logs:-}" | extract_json || true)"
+  if [ -z "$json" ]; then
+    json="$(oc exec -n "$NS" "$pod" -- sh -c 'cat /tmp/fio.out 2>/dev/null || true' 2>/dev/null || true)"
+  fi
+  printf "%s" "${json:-}"
+}
+# -----------------------------------------------------
 
 P99_VALUES=()
+COUNT=0
 for JOB in "${JOB_NAMES[@]}"; do
+  COUNT=$((COUNT + 1))
   POD="$(oc get pods -n "$NS" -l "job-name=${JOB}" -o name | head -n1 || true)"
   if [ -z "$POD" ]; then
-    echo "${JOB},,${SC_NAME},N/A,N/A" >> "$DETAILS_CSV"
+    echo "${COUNT},,${SC_NAME},N/A,N/A" >> "$DETAILS_CSV"
     continue
   fi
 
-  LOGS=""
-  for t in 1 2 3 4 5; do
-    LOGS="$(oc logs -n "$NS" "$POD" 2>/dev/null || true)" && [ -n "$LOGS" ] && break
-    sleep 1
-  done
-
+  JSON_BLOCK="$(get_fio_json "$POD" || true)"
   P99=""
-  JSON_BLOCK="$(printf "%s\n" "$LOGS" | extract_json || true)"
   if [ -n "$JSON_BLOCK" ]; then
-    P99="$(printf "%s\n" "$JSON_BLOCK" | parse_p99_from_json | tr -d '\r' | head -n1 || true)"
-  fi
-  if [ -z "${P99:-}" ]; then
-    P99="$(printf "%s\n" "$LOGS" | sed -n 's/^INFO: 99th percentile of fsync is \\([0-9][0-9]*\\) ns/\\1/p' | head -n1)"
-  fi
-  if [ -z "${P99:-}" ]; then
-    P99="$(printf "%s\n" "$LOGS" | sed -n 's/^WARN: 99th percentile of the fsync is greater.* is \\([0-9][0-9]*\\) ns.*/\\1/p' | head -n1)"
+    P99="$(printf '%s\n' "$JSON_BLOCK" | parse_p99_from_json | tr -d '\r' | head -n1 || true)"
   fi
 
-  if ! [[ "${P99:-}" =~ ^[0-9]+$ ]]; then
-    unset P99
+  if [ -z "${P99:-}" ]; then
+    LOGS="$(oc logs -n "$NS" "$POD" 2>/dev/null || true)"
+    P99="$(printf "%s\n" "$LOGS" | sed -n 's/^INFO: 99th percentile of fsync is \([0-9][0-9]*\) ns/\1/p' | head -n1)"
+    [ -z "${P99:-}" ] && P99="$(printf "%s\n" "$LOGS" | sed -n 's/^WARN: 99th percentile of the fsync is greater.* is \([0-9][0-9]*\) ns.*/\1/p' | head -n1)"
   fi
+
+  [[ "${P99:-}" =~ ^[0-9]+$ ]] || unset P99
 
   STATUS="N/A"
   if [ -n "${P99:-}" ]; then
-    [ "$P99" -ge "$THRESH_NS" ] && STATUS="FAIL" || STATUS="OK"
+    [ "$P99" -ge "$THRESH_NS" ] && STATUS="NO" || STATUS="YES"
     P99_VALUES+=("$P99")
-    echo "${JOB},${POD#pod/},${SC_NAME},${P99},${STATUS}" >> "$DETAILS_CSV"
+    echo "${COUNT},${POD#pod/},${SC_NAME},${P99},${STATUS}" >> "$DETAILS_CSV"
   else
-    echo "${JOB},${POD#pod/},${SC_NAME},N/A,N/A" >> "$DETAILS_CSV"
+    echo "${COUNT},${POD#pod/},${SC_NAME},N/A,N/A" >> "$DETAILS_CSV"
   fi
 done
 
@@ -191,7 +190,7 @@ fi
 
 SUMMARY_STATUS="N/A"
 if [ "$summary_value" != "N/A" ]; then
-  [ "$summary_value" -ge "$THRESH_NS" ] && SUMMARY_STATUS="FAIL" || SUMMARY_STATUS="OK"
+  [ "$summary_value" -ge "$THRESH_NS" ] && SUMMARY_STATUS="NO" || SUMMARY_STATUS="YES"
 fi
 
 echo "${PARALLEL},${SC_NAME},${summary_value},${SUMMARY_STATUS}" >> "$SUMMARY_CSV"
@@ -207,4 +206,4 @@ echo
 echo "PVCs used: ${PVC_NAMES[*]}"
 echo "Details: $DETAILS_CSV"
 echo "Summary: $SUMMARY_CSV"
-echo "(Threshold: ${THRESH_NS} ns; OK < threshold, FAIL ≥ threshold)"
+echo "(<10ms = YES means meets etcd latency requirement)"

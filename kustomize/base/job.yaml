@@ -1,9 +1,7 @@
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: etcd-perf-run
-  labels:
-    bench.tool: fio
+  name: etcd-perf
 spec:
   backoffLimit: 0
   template:
@@ -12,6 +10,13 @@ spec:
         bench.tool: fio
     spec:
       restartPolicy: Never
+      tolerations:
+        - key: "node-role.kubernetes.io/master"
+          operator: "Exists"
+          effect: "NoSchedule"
+        - key: "node-role.kubernetes.io/control-plane"
+          operator: "Exists"
+          effect: "NoSchedule"
       containers:
         - name: etcd-perf
           image: quay.io/cloud-bulldozer/etcd-perf:latest
