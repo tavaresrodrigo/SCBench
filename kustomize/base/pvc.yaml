@@ -3,9 +3,8 @@ kind: PersistentVolumeClaim
 metadata:
   name: bench-pvc
 spec:
-  accessModes:
-    - ReadWriteOnce
+  accessModes: [ "ReadWriteOnce" ]
   resources:
     requests:
       storage: 10Gi
-  storageClassName: CHANGE-ME
+  # storageClassName injected by the script

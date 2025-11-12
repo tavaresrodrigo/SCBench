@@ -1,166 +1,121 @@
 # SCBench
-Benchmark the performance of your StorageClasses by emulating etcd’s write pattern with fio / etcd-perf.
 
-This repository provides a  way to benchmark **Kubernetes/OpenShift StorageClasses** using
-[`quay.io/cloud-bulldozer/etcd-perf`](https://github.com/cloud-bulldozer/images/tree/main/etcd-perf).
+Benchmark StorageClasses by emulating etcd write patterns with fio / etcd-perf using [`quay.io/cloud-bulldozer/etcd-perf`](https://github.com/cloud-bulldozer/images/tree/main/etcd-perf).
 
-By running multiple pods concurrently — all writing to the same PVC — you can evaluate how each **StorageClass** behaves under **synchronous write contention**.
+Pods write concurrently to the same PVC to test synchronous write contention and identify performance differences across StorageClasses.
 
 ---
 
-## Repository structure
+## Objective
+
+SCBench runs fio workloads that simulate etcd fsync behavior. It collects p99 latency from the container logs and reports the result for each StorageClass.
+
+The tool helps verify if a storage backend meets the etcd recommendation of p99 fsync < 10 ms.
+
+---
+
+## Repository Structure
 
 ```text
-etcd-perf-storage-bench/
+scbench/
 ├── README.md
 ├── kustomize/
 │   ├── base/
-│   │   ├── job.yaml          # Base Job (runs fio via etcd-perf)
-│   │   └── pvc.yaml          # Shared PVC definition
-│   └── overlays/
-│       ├── ceph-rbd/          # Example overlay for Ceph SC
-│       └── lvm-local/          # Add overlays for other SCs
+│   │   ├── job.yaml          # Job definition (runs fio via etcd-perf)
+│   │   ├── pvc.yaml          # PVC used by all pods
+│   │   └── kustomization.yaml
 ├── scripts/
-│   ├── run-bench.sh          # Launch parallel jobs (oc-based)
-│   ├── get-logs.sh           # Fetch pod logs
-│   └── parse-99th.sh         # Parse fio JSON -> p99(ns)
+│   └── run-bench.sh          # Runs jobs, watches pods, collects results
 └── tables/
-    └── results.csv           # Consolidated output
+    ├── summary.csv           # Aggregated results per run
+    └── details.csv           # Detailed per-pod results
 ```
 
 ---
 
 ## Requirements
 
-* OpenShift 4.18+ cluster
-* CLI tools:
-
-  * `oc` (logged into your cluster)
-  * `kustomize`
-  * `yq` (v4+)
+* OpenShift 4.18+ or Kubernetes 1.29+
+* Tools: `oc`, `kustomize`, `yq` v4+
 * Namespace: `storage-bench`
+* Valid StorageClass (e.g., `ocs-external-storagecluster-ceph-rbd`, `lvms-vg1`)
 
 ---
 
-## Why fio?
+## Run
 
-[`fio`](https://fio.readthedocs.io/en/latest/fio_doc.html) (Flexible I/O Tester) is an industry-standard tool to measure:
+```bash
+scripts/run-bench.sh <storage-class-name> <parallel> 
+```
 
-| Metric                     | Description                                  |
-| -------------------------- | -------------------------------------------- |
-| **IOPS**                   | Input/output operations per second           |
-| **Latency**                | Time taken per I/O request                   |
-| **Bandwidth**              | Data transferred per second                  |
-| **Percentiles (p99, p95)** | How latency behaves for the slowest requests |
+Example:
 
-The parameters used in `etcd-perf` emulate etcd’s transactional write pattern using synchronous writes (`--ioengine=sync`, `--fdatasync=1`).
-The 99th percentile (`p99`) represents tail latency — how slow the slowest operations get under load.
+```bash
+scripts/run-bench.sh ocs-external-storagecluster-ceph-rbd 10
+```
+
+Steps:
+
+1. Create a PVC per run (`bench-pvc-<sc>-<runid>`).
+2. Launch N Jobs that mount the same PVC.
+3. Watch pod progress live.
+4. Wait for all Jobs to complete.
+5. Parse fio JSON output to collect the 99th percentile (p99) latency.
+6. Write results to `details.csv` and `summary.csv`.
+7. Delete Jobs and the PVC unless `KEEP=1` is set.
 
 ---
 
-## 🚀 Quick start
+## Example Output
 
-### 1. Clone the repo
+### tables/summary.csv
 
-```bash
-git clone https://github.com/tavaresrodrigo/scbench.git
-cd etcd-perf-storage-bench
+```csv
+Parallel Replicas,Storage Backend,99thP ns,Status
+1,ocs-external-storagecluster-ceph-rbd,245120,OK
+5,ocs-external-storagecluster-ceph-rbd,9876543,OK
+10,ocs-external-storagecluster-ceph-rbd,12876543,FAIL
 ```
 
-### 2. Choose or create a StorageClass overlay
+### tables/details.csv
 
-Edit `kustomize/overlays/<your-sc>/patch-pvc.yaml` and set:
-
-```yaml
-spec:
-  storageClassName: <your-storage-class>
+```csv
+job,pod,storageClass,p99_ns,Status
+etcd-perf-ocs-1762940738-1,etcd-perf-ocs-1762940738-1,ocs-external-storagecluster-ceph-rbd,287032,OK
+etcd-perf-ocs-1762940738-2,etcd-perf-ocs-1762940738-2,ocs-external-storagecluster-ceph-rbd,11234567,FAIL
 ```
 
-Each overlay defines one StorageClass to test.
-
----
-
-### 3. Run the benchmark
-
-Example: run 5 concurrent pods using the Ceph StorageClass:
-
-```bash
-scripts/run-bench.sh kustomize/overlays/ceph-sc 5 ceph-sc
-```
-
-This will:
-
-1. Ensure the namespace `storage-bench` exists
-2. Create a shared PVC (`bench-pvc`)
-3. Launch 5 Jobs (`etcd-perf-ceph-sc-1` .. `-5`), all mounting the same PVC at `/var/lib/etcd`
-
----
-
-## Monitor progress
-
-```bash
-oc get pods -n storage-bench
-```
-
-Wait until all pods show **Completed**.
-
----
-
-## 📈 Collect and analyze results
-
-### 1. Get logs
-
-```bash
-scripts/get-logs.sh ceph-sc
-```
-
-### 2. Extract the 99th percentile latency
-
-```bash
-scripts/parse-99th.sh ceph-sc ./tables/results.csv
-```
-
-### 3. Display results
-
-```bash
-column -s, -t ./tables/results.csv
-```
-
-#### Example output
+### Terminal summary
 
 ```text
-tool       replicas  storageClass  p99_ns
-fio        1         ceph-sc       102400
-fio        2         ceph-sc       124800
-fio        3         ceph-sc       159200
-fio        4         ceph-sc       178300
-fio        5         ceph-sc       192700
+Parallel Replicas  Storage Backend                          99thP ns   Status
+1                  ocs-external-storagecluster-ceph-rbd     245120     OK
+5                  ocs-external-storagecluster-ceph-rbd     9876543    OK
+10                 ocs-external-storagecluster-ceph-rbd     12876543   FAIL
 ```
 
 ---
 
-## Interpretation
+## Result Criteria
 
-| Observation                           | Meaning                                          |
-| ------------------------------------- | ------------------------------------------------ |
-| **Low p99 (<1 ms)**                   | Backend handles sync writes efficiently          |
-| **Rising p99 as replicas increase**   | I/O contention is increasing                     |
-| **Large jumps in p99 (>5× baseline)** | Possible bottleneck (journal, metadata, network) |
-| **Flat p99 curve**                    | Backend scales well (SSD, good caching)          |
-
----
-
-## Notes
-
-* The image `quay.io/cloud-bulldozer/etcd-perf` is a wrapper around `fio`.
-* `/var/lib/etcd` mount path is **mandatory** — do not change it.
-* OpenShift handles SELinux labeling; no `:Z` suffix needed.
-* Shared PVC is intentional — tests concurrent access to the same volume.
-
+| Condition   | Description            |
+| ----------- | ---------------------- |
+| p99 < 10 ms | Meets etcd requirement |
+| p99 ≥ 10 ms | Not suitable for etcd  |
 
 ---
 
 ## Cleanup
+
+Resources are deleted automatically when the script finishes.
+
+To keep them for inspection:
+
+```bash
+KEEP=1 scripts/run-bench.sh <storage-class> <parallel>
+```
+
+To remove all benchmark data manually:
 
 ```bash
 oc delete ns storage-bench
@@ -168,25 +123,26 @@ oc delete ns storage-bench
 
 ---
 
-## Compare multiple StorageClasses
+## Configuration Notes
+
+* Mount path `/var/lib/etcd` is required.
+* Each run creates a dedicated PVC shared by all pods.
+* Jobs use labels (`bench.sc`, `bench.run`, `bench.tool`) for tracking.
+* Aggregation mode: `AGG=max` (default). Change with:
 
 ```bash
-scripts/run-bench.sh kustomize/overlays/ceph-sc 5 ceph-sc
-scripts/parse-99th.sh ceph-sc ./tables/results.csv
-
-scripts/run-bench.sh kustomize/overlays/ocs-rbd 5 ocs-rbd
-scripts/parse-99th.sh ocs-rbd ./tables/results.csv
+AGG=avg scripts/run-bench.sh <sc> 10
+AGG=min scripts/run-bench.sh <sc> 10
 ```
 
-The file `tables/results.csv` will contain all results.
+* Threshold can be adjusted with `THRESH_NS` (default: 10000000 ns).
 
 ---
 
-## References
+## 📚 References
 
 * [Cloud-Bulldozer etcd-perf container](https://github.com/cloud-bulldozer/images/tree/main/etcd-perf)
 * [fio official documentation](https://fio.readthedocs.io/en/latest/fio_doc.html)
 * [Validating the hardware for etcd](https://docs.redhat.com/en/documentation/openshift_container_platform/4.18/html/scalability_and_performance/recommended-performance-and-scalability-practices-2#etcd-verify-hardware_recommended-etcd-practices)
 
 ---
-
