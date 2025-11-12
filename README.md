@@ -2,7 +2,7 @@
 
 Benchmark StorageClasses by emulating etcd write patterns with fio / etcd-perf using [`quay.io/cloud-bulldozer/etcd-perf`](https://github.com/cloud-bulldozer/images/tree/main/etcd-perf).
 
-Pods write concurrently to the same PVC to test synchronous write contention and identify performance differences across StorageClasses.
+Each pod gets its **own PVC** during a run. This measures the underlying StorageClass performance without contention on a single volume and observes parallel scaling across volumes.
 
 ---
 
@@ -39,25 +39,26 @@ scbench/
 * Tools: `oc`, `kustomize`, `yq` v4+
 * Namespace: `storage-bench`
 * Valid StorageClass (e.g., `ocs-external-storagecluster-ceph-rbd`, `lvms-vg1`)
+* The terminal must be logged in to the Openshift cluster  (oc login or export KUBECONFIG)
 
 ---
 
 ## Run
 
 ```bash
-scripts/run-bench.sh <storage-class-name> <parallel> 
+scripts/run-bench.sh <storage-class-name> <parallel> [summary_csv] [details_csv]
 ```
 
 Example:
 
 ```bash
-scripts/run-bench.sh ocs-external-storagecluster-ceph-rbd 10
+scripts/run-bench.sh ocs-external-storagecluster-ceph-rbd 10 ./tables/summary.csv ./tables/details.csv
 ```
 
 Steps:
 
-1. Create a PVC per run (`bench-pvc-<sc>-<runid>`).
-2. Launch N Jobs that mount the same PVC.
+1. Create **N PVCs** per run (`bench-pvc-<sc>-<runid>-<i>`), one per pod.
+2. Launch N Jobs. Each Job mounts its **own PVC**.
 3. Watch pod progress live.
 4. Wait for all Jobs to complete.
 5. Parse fio JSON output to collect the 99th percentile (p99) latency.
@@ -126,7 +127,7 @@ oc delete ns storage-bench
 ## Configuration Notes
 
 * Mount path `/var/lib/etcd` is required.
-* Each run creates a dedicated PVC shared by all pods.
+* Each run creates **one PVC per pod** (`bench-pvc-<sc>-<runid>-<i>`).
 * Jobs use labels (`bench.sc`, `bench.run`, `bench.tool`) for tracking.
 * Aggregation mode: `AGG=max` (default). Change with:
 
