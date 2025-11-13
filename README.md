@@ -48,13 +48,13 @@ scbench/
 If you don't specify [summary_csv] [details_csv] the two files will get created in the tables directory.
 
 ```bash
-scripts/run-bench.sh <storage-class-name> <parallel> [summary_csv] [details_csv]
+$ scripts/run-bench.sh <storage-class-name> <parallel> [summary_csv] [details_csv]
 ```
 
 Example:
 
 ```bash
-scripts/run-bench.sh ocs-external-storagecluster-ceph-rbd 10 ./tables/summary.csv ./tables/details.csv
+$ scripts/run-bench.sh ocs-external-storagecluster-ceph-rbd 10 ./tables/summary.csv ./tables/details.csv
 ```
 
 Steps:
@@ -134,13 +134,13 @@ Resources are deleted automatically when the script finishes.
 To keep them for inspection:
 
 ```bash
-KEEP=1 scripts/run-bench.sh <storage-class> <parallel>
+$ KEEP=1 scripts/run-bench.sh <storage-class> <parallel>
 ```
 
 To remove all benchmark data manually:
 
 ```bash
-oc delete ns storage-bench
+$ oc delete ns storage-bench
 ```
 
 ---
@@ -152,8 +152,8 @@ oc delete ns storage-bench
 * Aggregation mode: `AGG=max` (default). Change with:
 
 ```bash
-AGG=avg scripts/run-bench.sh <sc> 10
-AGG=min scripts/run-bench.sh <sc> 10
+$ AGG=avg scripts/run-bench.sh <sc> 10
+$ AGG=min scripts/run-bench.sh <sc> 10
 ```
 
 * Threshold can be adjusted with `THRESH_NS` (default: 10000000 ns).
