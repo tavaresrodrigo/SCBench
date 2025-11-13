@@ -45,6 +45,8 @@ scbench/
 
 ## Run
 
+If you don't specify [summary_csv] [details_csv] the two files will get created in the tables directory.
+
 ```bash
 scripts/run-bench.sh <storage-class-name> <parallel> [summary_csv] [details_csv]
 ```
@@ -72,27 +74,46 @@ Steps:
 ### tables/summary.csv
 
 ```csv
-Parallel Replicas,Storage Backend,99thP ns,Status
-1,ocs-external-storagecluster-ceph-rbd,245120,OK
-5,ocs-external-storagecluster-ceph-rbd,9876543,OK
-10,ocs-external-storagecluster-ceph-rbd,12876543,FAIL
+Parallel Replicas,Storage Backend,99thP ns,<10ms
+1,ocs-external-storagecluster-ceph-rbd,7847360,YES
+5,ocs-external-storagecluster-ceph-rbd,8002720,YES
+10,ocs-external-storagecluster-ceph-rbd,8633792,YES
+15,ocs-external-storagecluster-ceph-rbd,9064864,YES
+20,ocs-external-storagecluster-ceph-rbd,9533792,YES
+
 ```
 
 ### tables/details.csv
 
 ```csv
-job,pod,storageClass,p99_ns,Status
-etcd-perf-ocs-1762940738-1,etcd-perf-ocs-1762940738-1,ocs-external-storagecluster-ceph-rbd,287032,OK
-etcd-perf-ocs-1762940738-2,etcd-perf-ocs-1762940738-2,ocs-external-storagecluster-ceph-rbd,11234567,FAIL
+Parallel Replicas,pod,storageClass,p99_ns,< 10ms
+1,etcd-perf-ocs-external-storagecluster-ceph-rbd-6666653044-msntc,ocs-external-storagecluster-ceph-rbd,7847360,YES
+1,etcd-perf-ocs-external-storagecluster-ceph-rbd-6666653350-cnk59,ocs-external-storagecluster-ceph-rbd,8371643,YES
+2,etcd-perf-ocs-external-storagecluster-ceph-rbd-6666653350-thz2h,ocs-external-storagecluster-ceph-rbd,8371642,YES
+3,etcd-perf-ocs-external-storagecluster-ceph-rbd-6666653350-hctcj,ocs-external-storagecluster-ceph-rbd,8371641,YES
+4,etcd-perf-ocs-external-storagecluster-ceph-rbd-6666653350-x76vf,ocs-external-storagecluster-ceph-rbd,8371640,YES
+5,etcd-perf-ocs-external-storagecluster-ceph-rbd-6666653350-5vs2g,ocs-external-storagecluster-ceph-rbd,8502721,YES
+1,etcd-perf-ocs-external-storagecluster-ceph-rbd-6666655281-qbprg,ocs-external-storagecluster-ceph-rbd,9371642,YES
+2,etcd-perf-ocs-external-storagecluster-ceph-rbd-6666655281-g76j4,ocs-external-storagecluster-ceph-rbd,9371643,YES
+3,etcd-perf-ocs-external-storagecluster-ceph-rbd-6666655281-dccgq,ocs-external-storagecluster-ceph-rbd,9502724,YES
+4,etcd-perf-ocs-external-storagecluster-ceph-rbd-6666655281-m86s9,ocs-external-storagecluster-ceph-rbd,9633795,YES
+5,etcd-perf-ocs-external-storagecluster-ceph-rbd-6666655281-88ghj,ocs-external-storagecluster-ceph-rbd,9502726,YES
+6,etcd-perf-ocs-external-storagecluster-ceph-rbd-6666655281-zqrw4,ocs-external-storagecluster-ceph-rbd,9502727,YES
+7,etcd-perf-ocs-external-storagecluster-ceph-rbd-6666655281-5xz2l,ocs-external-storagecluster-ceph-rbd,9502728,YES
+8,etcd-perf-ocs-external-storagecluster-ceph-rbd-6666655281-lz5fx,ocs-external-storagecluster-ceph-rbd,9502729,YES
+9,etcd-perf-ocs-external-storagecluster-ceph-rbd-6666655281-kptvm,ocs-external-storagecluster-ceph-rbd,9502710,YES
+10,etcd-perf-ocs-external-storagecluster-ceph-rbd-6666655281-r8cps,ocs-external-storagecluster-ceph-rbd,9602766,YES
 ```
 
 ### Terminal summary
 
 ```text
-Parallel Replicas  Storage Backend                          99thP ns   Status
-1                  ocs-external-storagecluster-ceph-rbd     245120     OK
-5                  ocs-external-storagecluster-ceph-rbd     9876543    OK
-10                 ocs-external-storagecluster-ceph-rbd     12876543   FAIL
+Parallel Replicas  Storage Backend                       99thP ns  <10ms
+1                  ocs-external-storagecluster-ceph-rbd  8847361   YES
+5                  ocs-external-storagecluster-ceph-rbd  9502722   YES
+10                 ocs-external-storagecluster-ceph-rbd  9633793   YES
+15                 ocs-external-storagecluster-ceph-rbd  9764864   YES
+20                 ocs-external-storagecluster-ceph-rbd  9833795   YES
 ```
 
 ---
@@ -128,7 +149,6 @@ oc delete ns storage-bench
 
 * Mount path `/var/lib/etcd` is required.
 * Each run creates **one PVC per pod** (`bench-pvc-<sc>-<runid>-<i>`).
-* Jobs use labels (`bench.sc`, `bench.run`, `bench.tool`) for tracking.
 * Aggregation mode: `AGG=max` (default). Change with:
 
 ```bash
